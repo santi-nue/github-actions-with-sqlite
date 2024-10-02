@@ -1,50 +1,93 @@
-from random import seed
-from random import randint
-from datetime import datetime
-import time
+import requests
 import sqlite3
+import time
+import io
 
-# define connection and cursor
+def create_database():
+    conn = sqlite3.connect('/home/runner/work/stl73/stl73/aircraft_images.db')
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS images
+    (hex TEXT PRIMARY KEY, image BLOB)
+    """)
+    conn.commit()
+    return conn
 
-connection = sqlite3.connect('db/running_activities.sqlite3')
+		
+def get_hex_values():
+    try:
+        url = "db/aircraft.json"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+        data = response.json()
+        return [aircraft.get("hex") for aircraft in data.get("aircraft", [])]		
+    except requests.exceptions.Timeout:
+        print(f"The request to {url} timed out after 10 seconds.")
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred while requesting {url}: {e}")
+    return []	
+		
+		
 
-cursor = connection.cursor()
+def get_image_url(hex_value):
+    try:
+        url = f"https://hexdb.io/hex-image-thumb?hex={hex_value}"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+        return response.text.strip()
+    except requests.exceptions.Timeout:
+        print(f"The request to {url} timed out after 10 seconds.")
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred while requesting {url}: {e}")
+    return None
 
-# create activities table
+		
 
-command1 = """CREATE TABLE IF NOT EXISTS
-activities(id INTEGER PRIMARY KEY, timestamp INTEGER, 
-datetime TEXT, duration REAL, distance REAL)"""
 
-cursor.execute(command1)
+def download_and_store_image(conn, url, hex_value):
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()  # Raises an HTTPError for bad responses
+        image_data = response.content
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO images (hex, image) VALUES (?, ?)", (hex_value, image_data))
+        conn.commit()
+        print(f"Downloaded and stored image for hex {hex_value}")		
+        return		
+    except requests.exceptions.Timeout:
+        print(f"The request to {url} timed out after 10 seconds.")
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred while requesting {url}: {e}")
+    return 		
+		
 
-# generate some random activities
 
-activities = [(int(time.time()), datetime.today().strftime('%Y-%m-%d-%H:%M:%S'), 
-                randint(25, 35), randint(0, 10)),
-              (int(time.time() + 1), datetime.today().strftime('%Y-%m-%d-%H:%M:%S'), 
-                randint(25, 35), randint(0, 10)),
-              (int(time.time() + 2), datetime.today().strftime('%Y-%m-%d-%H:%M:%S'), 
-                randint(25, 35), randint(0, 10))]
+def image_exists_in_db(conn, hex_value):
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM images WHERE hex = ?", (hex_value,))
+    return cursor.fetchone() is not None
 
-# add 3 activities to activities table
+def main():
+    conn = create_database()
+    hex_values = get_hex_values()
+    start_time = time.time()
+    time_limit = 2000
+    for hex_value in hex_values:
 
-cursor.executemany('INSERT INTO activities VALUES (null, ?, ?, ?, ?)', activities)
+        if time.time() - start_time > time_limit:
+            print("Loop time limit. Exiting loop.")
+        break
+	    
+        if image_exists_in_db(conn, hex_value):
+            print(f"Image for hex {hex_value} already exists in database. Skipping.")
+            continue
+        
+        image_url = get_image_url(hex_value)
+        if image_url:
+            download_and_store_image(conn, image_url, hex_value)
+            time.sleep(4)  # Wait for 4 seconds before the next request
+    
+    conn.close()
 
-# commit changes
-
-connection.commit()
-
-# get activities
-
-cursor.execute("SELECT * FROM activities")
-
-# display data
-
-results = cursor.fetchall()
-print(results)
-
-# close connection
-
-cursor.close()
-connection.close()
+if __name__ == "__main__":
+    main()

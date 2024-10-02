@@ -4,7 +4,7 @@ import time
 import io
 
 def create_database():
-    conn = sqlite3.connect('/home/runner/work/stl73/stl73/aircraft_images.db')
+    conn = sqlite3.connect("db/aircraft_images.db")
     cursor = conn.cursor()
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS images
@@ -16,7 +16,7 @@ def create_database():
 		
 def get_hex_values():
     try:
-        url = "db/aircraft.json"
+        url = "https://hexdb.io/radar/data/aircraft.json"
         response = requests.get(url, timeout=10)
         response.raise_for_status()  # Raises an HTTPError for bad responses
         data = response.json()
